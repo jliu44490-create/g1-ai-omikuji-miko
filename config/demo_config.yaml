@@ -1,0 +1,11 @@
+mode: manual
+
+use_robot: false
+use_camera: false
+use_asr: false
+use_tts: false
+use_llm: true
+
+fallback:
+  use_keyboard_input: true
+  use_manual_color_select: true

@@ -1,0 +1,12 @@
+colors:
+  gold:
+    meaning: "祝福、鼓励、积极确认"
+    action: "pray"
+
+  red:
+    meaning: "行动、改变、向前迈出一步"
+    action: "bow"
+
+  blue:
+    meaning: "冷静、整理、慢慢来"
+    action: "nod"

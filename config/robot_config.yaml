@@ -1,0 +1,13 @@
+network:
+  interface: enp2s0
+  domain_id: 0
+
+control:
+  enable_waist: false
+  soft_lock_waist: true
+  max_duration: 5.0
+  interpolation: cubic
+
+safety:
+  max_joint_delta: 0.4
+  emergency_reset: true
