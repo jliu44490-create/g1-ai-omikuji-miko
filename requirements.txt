@@ -4,3 +4,10 @@ pyyaml
 python-dotenv
 requests
 openai
+
+
+# audio processing related
+faster-whisper
+piper-plus
+sounddevice
+soundfile
