@@ -4,3 +4,5 @@ pyyaml
 python-dotenv
 requests
 openai
+zhipuai>=2.0.0
+anthropic>=0.30.0
