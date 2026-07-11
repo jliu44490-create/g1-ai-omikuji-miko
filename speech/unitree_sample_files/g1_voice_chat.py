@@ -20,6 +20,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from llm import generate_reading
+from g1_control.g1_move_to_symmetric_审判硬腰_real import (
+    WAIST_KD_HARD,
+    WAIST_KP_HARD,
+    RealG1ArmController,
+)
 from speech.asr import DEFAULT_MODEL_PATH, JapaneseASR
 from speech.realtime_voice import (
     choose_audio_backend,
@@ -37,6 +42,44 @@ from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
 
 STREAM_NAME = "tts"
 FIXED_OMIKUJI_COLOR = "blue"
+
+
+class PoseSession:
+    """Run one pose/hold/return lifecycle without blocking LLM or TTS."""
+
+    def __init__(self, controller: RealG1ArmController) -> None:
+        self.controller = controller
+        self.release_event = threading.Event()
+        self.result: queue.Queue = queue.Queue(maxsize=1)
+        self._result_collected = False
+        self._error: BaseException | None = None
+        self.thread = threading.Thread(
+            target=self._run,
+            name="g1-judgment-pose",
+            daemon=True,
+        )
+
+    def _run(self) -> None:
+        try:
+            self.controller.run_until_released(self.release_event)
+            self.result.put(None)
+        except BaseException as error:
+            self.result.put(error)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def release_and_wait(self) -> None:
+        """Request standing and wait until Arm SDK control is released."""
+        self.release_event.set()
+        self.thread.join()
+        if not self._result_collected:
+            self._error = self.result.get()
+            self._result_collected = True
+        if self._error is not None:
+            raise RuntimeError(
+                f"G1 pose lifecycle failed: {self._error}"
+            ) from self._error
 
 
 def chat(text: str) -> str:
@@ -185,12 +228,33 @@ def parse_args() -> argparse.Namespace:
         "--asr-device", choices=["cpu", "cuda", "auto"], default="cpu"
     )
     parser.add_argument("--compute-type", default="int8")
+    parser.add_argument(
+        "--waist-kp",
+        type=float,
+        default=WAIST_KP_HARD,
+        help="Judgment-pose waist stiffness; lower it if the robot shakes",
+    )
+    parser.add_argument(
+        "--waist-kd",
+        type=float,
+        default=WAIST_KD_HARD,
+        help="Judgment-pose waist damping",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     enable_venv_cuda_libraries(args.asr_device)
+    print("WARNING: judgment pose control is only for a 29-DOF G1.")
+    print(
+        "WARNING: clear the arm/waist area, use physical protection, and keep "
+        "the E-stop ready. Hard waist holding can fight balance."
+    )
+    if input("Type YES to enable real-robot pose control: ").strip() != "YES":
+        print("Cancelled before robot control was initialized.")
+        return
+
     args.input_device_value = parse_device(args.input_device)
     args.interrupted = threading.Event()
     audio_backend = choose_audio_backend(
@@ -214,12 +278,14 @@ def main() -> None:
     client.SetTimeout(10.0)
     client.Init()
     check_voice_service(client, args.net)
+    pose_controller = RealG1ArmController(args.waist_kp, args.waist_kd)
 
     print("G1 Voice Chat Ready (Ctrl+C to exit)")
     _, listener_result = start_listener(
         client, args, audio_backend, args.threshold
     )
 
+    active_pose: PoseSession | None = None
     try:
         while True:
             audio = wait_for_audio(listener_result)
@@ -234,10 +300,16 @@ def main() -> None:
                 continue
 
             print(f"User: {user_text}")
+            # Start moving at the same moment this recognized text is sent to
+            # Claude. The background session holds TARGET through TTS playback.
+            active_pose = PoseSession(pose_controller)
+            active_pose.start()
             try:
                 raw_reply = chat(user_text)
             except Exception as error:
                 print(f"Miko LLM failed; continuing: {error}", file=sys.stderr)
+                active_pose.release_and_wait()
+                active_pose = None
                 args.interrupted.clear()
                 _, listener_result = start_listener(
                     client, args, audio_backend, args.threshold
@@ -247,6 +319,8 @@ def main() -> None:
             reply = raw_reply.strip()
             if not reply:
                 print("Miko LLM returned an empty response; continuing.", file=sys.stderr)
+                active_pose.release_and_wait()
+                active_pose = None
                 args.interrupted.clear()
                 _, listener_result = start_listener(
                     client, args, audio_backend, args.threshold
@@ -271,6 +345,8 @@ def main() -> None:
                     make_g1_wav(reply, wav_path)
                 except Exception as error:
                     print(f"Edge TTS failed; continuing: {error}", file=sys.stderr)
+                    active_pose.release_and_wait()
+                    active_pose = None
                     if next_result is None:
                         _, next_result = start_listener(
                             client, args, audio_backend, args.threshold
@@ -290,6 +366,11 @@ def main() -> None:
                     if not completed:
                         print("Robot speech interrupted by user.")
 
+            # Playback (including its tail buffer) is complete. Only now return
+            # from the judgment pose to the measured standing arm position.
+            active_pose.release_and_wait()
+            active_pose = None
+
             if next_result is None:
                 _, next_result = start_listener(
                     client, args, audio_backend, args.threshold
@@ -299,6 +380,9 @@ def main() -> None:
     except KeyboardInterrupt:
         client.PlayStop(STREAM_NAME)
         print("\nExit.")
+    finally:
+        if active_pose is not None:
+            active_pose.release_and_wait()
 
 
 if __name__ == "__main__":

@@ -143,3 +143,14 @@ or acoustic echo cancellation. Raise the threshold if speaker echo triggers it.
 
 LLM/TTS errors are isolated to one turn so the robot returns to listening instead
 of exiting.
+
+After a non-empty ASR result, the real-G1 judgment pose from
+`g1_control/g1_move_to_symmetric_审判硬腰_real.py` starts in parallel with the
+Claude request. The arm target and startup waist angle remain actively held
+through Edge TTS generation and G1 playback. After playback and its tail buffer
+finish, the arms interpolate back to their measured starting/standing pose and
+Arm SDK/waist control is released before normal listening resumes.
+
+This pose is only for a 29-DOF G1 and uses a hard waist hold. Use physical
+protection and keep the E-stop ready. If the lower body fights the hold or
+shakes, stop immediately and reduce `--waist-kp`/`--waist-kd`.
