@@ -6,3 +6,9 @@ requests
 openai
 zhipuai>=2.0.0
 anthropic>=0.30.0
+
+# audio processing related
+faster-whisper
+piper-plus
+sounddevice
+soundfile
