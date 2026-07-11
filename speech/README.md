@@ -180,3 +180,7 @@ The official face wave is allowed `4.0` seconds by default before explicit arm
 release. Tune this with `--face-wave-seconds` and the post-release settling time
 with `--action-settle-seconds`. Official arm actions and custom `rt/arm_sdk`
 poses never run concurrently.
+
+Both custom arm poses use a 4.0-second smoothstep entry and a 4.0-second
+return. Arm/waist takeover and release each use 1.5 seconds. These timings are
+shared by the integrated listening and reading pose controller.
