@@ -13,7 +13,7 @@ import sys
 import sysconfig
 from collections import deque
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import numpy as np
 import sounddevice as sd
@@ -73,6 +73,7 @@ def listen_for_utterance(
     min_speech_seconds: float,
     max_speech_seconds: float,
     audio_backend: str = "sounddevice",
+    on_speech_start: Optional[Callable[[], None]] = None,
 ) -> np.ndarray:
     """Capture one utterance using a simple RMS energy/silence detector."""
     block_seconds = 0.03
@@ -98,6 +99,8 @@ def listen_for_utterance(
                     blocks.extend(pre_roll)
                     pre_roll.clear()
                     print("Speech detected.", flush=True)
+                    if on_speech_start is not None:
+                        on_speech_start()
                 continue
 
             blocks.append(block)

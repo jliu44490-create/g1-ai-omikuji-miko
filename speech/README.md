@@ -110,3 +110,25 @@ inside WSL. To opt into a configured NVIDIA CUDA 12 environment, pass
 When `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` are installed in the active
 virtual environment, `realtime_voice.py` automatically adds their library
 directories before starting CUDA. No manual `LD_LIBRARY_PATH` export is needed.
+
+## Unitree G1 voice chat
+
+The original G1 sample used Microsoft Edge TTS voice
+`ja-JP-NanamiNeural`. The integrated version uses the local Kotoba Whisper ASR
+and Piper Tsukuyomi TTS while retaining the existing Ollama `qwen:0.5b` LLM:
+
+```bash
+python -m speech.unitree_sample_files.g1_voice_chat ROBOT_INTERFACE \
+  --asr-device cuda --compute-type float16
+```
+
+Replace `ROBOT_INTERFACE` with the wired interface used to reach G1. The default
+audio input is the system microphone. Add `--input-device DEVICE` or
+`--audio-backend pulse` when necessary.
+
+The microphone remains active during synthesis and G1 playback. Speech above
+`--barge-in-threshold` immediately calls `PlayStop("tts")`, and the interrupting
+utterance becomes the next ASR/LLM turn. The default threshold is `0.04`; raise
+it if the G1 speaker triggers its own interruption, or lower it if user speech
+is missed. A directional microphone or acoustic echo cancellation is recommended
+when the microphone is close to the G1 speaker.
