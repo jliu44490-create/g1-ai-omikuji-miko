@@ -136,3 +136,9 @@ Optional barge-in can be enabled with `--barge-in`. Speech above
 becomes the next turn. Energy detection alone cannot distinguish the user from
 speaker echo, so barge-in should only be enabled with a directional microphone
 or acoustic echo cancellation. Raise the threshold if speaker echo triggers it.
+
+The Qwen response is sanitized before Japanese TTS. In particular, generated
+romanization such as `(Hai kei desu ka?)` is removed because it would select
+Piper's English phonemizer and require optional NLTK English tagger data. LLM
+request and phonemizer errors are isolated to one turn, so a malformed response
+is logged and the robot returns to listening instead of exiting.

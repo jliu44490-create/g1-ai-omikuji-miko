@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -47,7 +48,8 @@ def chat(text: str) -> str:
     prompt = (
         "あなたはUnitree G1の音声アシスタントです。"
         "常に日本語の丁寧語で、短く自然に答えてください。"
-        "余計な説明はせず、一言だけ答えてください。\n"
+        "余計な説明はせず、一文だけ答えてください。"
+        "英語、中国語、ローマ字、括弧、話者ラベルは絶対に使わないでください。\n"
         f"ユーザー: {text}\nアシスタント:"
     )
 
@@ -63,6 +65,21 @@ def chat(text: str) -> str:
     )
     response.raise_for_status()
     return response.json()["response"].strip()
+
+
+def sanitize_reply_for_tts(text: str) -> str:
+    """Remove small-model artifacts that can break Japanese phonemization."""
+    # Do not speak a second generated turn or echoed prompt labels.
+    text = re.split(r"(?:^|\n)\s*(?:アシスタント|ユーザー)\s*[:：]", text)[0]
+    text = re.sub(r"[（(][^()（）]*[A-Za-z][^()（）]*[）)]", "", text)
+    text = re.sub(r"[（(]\s*回答\s*[）)]", "", text)
+    # Latin text invokes Piper's optional English/NLTK phonemizer. This robot
+    # assistant is Japanese-only, so discard it rather than crashing a turn.
+    text = re.sub(r"[A-Za-z]+(?:[ '\-][A-Za-z]+)*", "", text)
+    text = re.sub(r"[\r\n\t]+", "。", text)
+    text = re.sub(r"。{2,}", "。", text)
+    text = re.sub(r"\s+", "", text).strip("。 、,")
+    return text or "すみません、もう一度お願いします。"
 
 
 def check_voice_service(client: AudioClient, interface: str) -> None:
@@ -274,8 +291,20 @@ def main() -> None:
                 continue
 
             print(f"User: {user_text}")
-            reply = chat(user_text)
+            try:
+                raw_reply = chat(user_text)
+            except (requests.RequestException, KeyError, ValueError) as error:
+                print(f"LLM request failed; continuing: {error}", file=sys.stderr)
+                args.interrupted.clear()
+                _, listener_result = start_listener(
+                    client, args, audio_backend, args.threshold
+                )
+                continue
+
+            reply = sanitize_reply_for_tts(raw_reply)
             print(f"Robot: {reply}")
+            if reply != raw_reply:
+                print(f"Raw LLM output was sanitized: {raw_reply!r}")
 
             args.interrupted.clear()
             next_result = None
@@ -290,7 +319,18 @@ def main() -> None:
 
             with tempfile.TemporaryDirectory(prefix="g1-reply-") as directory:
                 wav_path = Path(directory) / "reply.wav"
-                make_g1_wav(tts, reply, wav_path)
+                try:
+                    make_g1_wav(tts, reply, wav_path)
+                except Exception as error:
+                    # A malformed phoneme sequence should skip only this reply,
+                    # never terminate the long-running robot interaction.
+                    print(f"TTS failed; continuing: {error}", file=sys.stderr)
+                    if next_result is None:
+                        _, next_result = start_listener(
+                            client, args, audio_backend, args.threshold
+                        )
+                    listener_result = next_result
+                    continue
                 if not args.interrupted.is_set():
                     pcm, sample_rate, channels, ok = read_wav(str(wav_path))
                     if not ok or sample_rate != 16000 or channels != 1:
