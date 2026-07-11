@@ -219,5 +219,4 @@ __marimo__/
 
 # audio related
 speech/models/
-speech/audio/__pycache__/
-*.pyc
+speech/audio/
