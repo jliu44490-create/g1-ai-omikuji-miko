@@ -126,9 +126,13 @@ Replace `ROBOT_INTERFACE` with the wired interface used to reach G1. The default
 audio input is the system microphone. Add `--input-device DEVICE` or
 `--audio-backend pulse` when necessary.
 
-The microphone remains active during synthesis and G1 playback. Speech above
-`--barge-in-threshold` immediately calls `PlayStop("tts")`, and the interrupting
-utterance becomes the next ASR/LLM turn. The default threshold is `0.04`; raise
-it if the G1 speaker triggers its own interruption, or lower it if user speech
-is missed. A directional microphone or acoustic echo cancellation is recommended
-when the microphone is close to the G1 speaker.
+The reliable default is half-duplex: microphone capture starts after the G1 has
+finished its complete reply. This prevents the G1 speaker from being mistaken
+for new user speech. A `0.8` second playback tail also prevents `PlayStop` from
+cutting buffered audio; tune it with `--playback-tail-seconds` if necessary.
+
+Optional barge-in can be enabled with `--barge-in`. Speech above
+`--barge-in-threshold` then calls `PlayStop("tts")`, and the interrupting utterance
+becomes the next turn. Energy detection alone cannot distinguish the user from
+speaker echo, so barge-in should only be enabled with a directional microphone
+or acoustic echo cancellation. Raise the threshold if speaker echo triggers it.
