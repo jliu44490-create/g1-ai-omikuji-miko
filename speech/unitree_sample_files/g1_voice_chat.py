@@ -4,26 +4,22 @@
 from __future__ import annotations
 
 import argparse
-import os
 import queue
-import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
-import requests
 
 # Support both `python -m speech.unitree_sample_files.g1_voice_chat` and direct use.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from llm import generate_reading
 from speech.asr import DEFAULT_MODEL_PATH, JapaneseASR
 from speech.realtime_voice import (
     choose_audio_backend,
@@ -31,55 +27,21 @@ from speech.realtime_voice import (
     listen_for_utterance,
     parse_device,
 )
-from speech.tts import JapaneseTTS
+from speech.unitree_sample_files.speak_japanese import (
+    VOICE as EDGE_TTS_VOICE,
+    generate_wav as generate_edge_wav,
+)
 from speech.unitree_sample_files.wav import read_wav
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
 
-SPEECH_DIR = Path(__file__).resolve().parents[1]
-TTS_MODEL_DIR = SPEECH_DIR / "models" / "tsukuyomi"
-TTS_MODEL_PATH = TTS_MODEL_DIR / "tsukuyomi-chan-6lang-fp16.onnx"
-TTS_CONFIG_PATH = TTS_MODEL_DIR / "config.json"
 STREAM_NAME = "tts"
+FIXED_OMIKUJI_COLOR = "blue"
 
 
-# Keep the existing Qwen/Ollama LLM unchanged.
 def chat(text: str) -> str:
-    prompt = (
-        "あなたはUnitree G1の音声アシスタントです。"
-        "常に日本語の丁寧語で、短く自然に答えてください。"
-        "余計な説明はせず、一文だけ答えてください。"
-        "英語、中国語、ローマ字、括弧、話者ラベルは絶対に使わないでください。\n"
-        f"ユーザー: {text}\nアシスタント:"
-    )
-
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={
-            "model": "qwen:0.5b",
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.6, "num_predict": 48},
-        },
-        timeout=8,
-    )
-    response.raise_for_status()
-    return response.json()["response"].strip()
-
-
-def sanitize_reply_for_tts(text: str) -> str:
-    """Remove small-model artifacts that can break Japanese phonemization."""
-    # Do not speak a second generated turn or echoed prompt labels.
-    text = re.split(r"(?:^|\n)\s*(?:アシスタント|ユーザー)\s*[:：]", text)[0]
-    text = re.sub(r"[（(][^()（）]*[A-Za-z][^()（）]*[）)]", "", text)
-    text = re.sub(r"[（(]\s*回答\s*[）)]", "", text)
-    # Latin text invokes Piper's optional English/NLTK phonemizer. This robot
-    # assistant is Japanese-only, so discard it rather than crashing a turn.
-    text = re.sub(r"[A-Za-z]+(?:[ '\-][A-Za-z]+)*", "", text)
-    text = re.sub(r"[\r\n\t]+", "。", text)
-    text = re.sub(r"。{2,}", "。", text)
-    text = re.sub(r"\s+", "", text).strip("。 、,")
-    return text or "すみません、もう一度お願いします。"
+    """Generate a miko reading using the shared LLM module and fixed blue color."""
+    return generate_reading(text, FIXED_OMIKUJI_COLOR)
 
 
 def check_voice_service(client: AudioClient, interface: str) -> None:
@@ -93,32 +55,9 @@ def check_voice_service(client: AudioClient, interface: str) -> None:
     print(f"Connected to G1 voice service (volume: {volume})")
 
 
-def make_g1_wav(tts: JapaneseTTS, text: str, output_path: Path) -> None:
-    """Synthesize locally and normalize to G1's 16-kHz mono PCM format."""
-    if shutil.which("ffmpeg") is None:
-        raise RuntimeError("ffmpeg is required to prepare Piper output for G1")
-
-    with tempfile.TemporaryDirectory(prefix="g1-piper-") as directory:
-        piper_wav = Path(directory) / "piper.wav"
-        tts.synthesize(text, piper_wav)
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "error",
-                "-i",
-                str(piper_wav),
-                "-ar",
-                "16000",
-                "-ac",
-                "1",
-                "-acodec",
-                "pcm_s16le",
-                str(output_path),
-            ],
-            check=True,
-        )
+def make_g1_wav(text: str, output_path: Path) -> None:
+    """Generate G1-ready audio with Edge TTS ja-JP-NanamiNeural."""
+    generate_edge_wav(text, str(output_path))
 
 
 def play_g1_interruptibly(
@@ -246,8 +185,6 @@ def parse_args() -> argparse.Namespace:
         "--asr-device", choices=["cpu", "cuda", "auto"], default="cpu"
     )
     parser.add_argument("--compute-type", default="int8")
-    parser.add_argument("--tts-model", type=Path, default=TTS_MODEL_PATH)
-    parser.add_argument("--tts-config", type=Path, default=TTS_CONFIG_PATH)
     return parser.parse_args()
 
 
@@ -263,8 +200,14 @@ def main() -> None:
     print(f"Audio backend: {audio_backend}")
     print("Loading local Kotoba Whisper ASR...", flush=True)
     asr = JapaneseASR(args.asr_model, args.asr_device, args.compute_type)
-    print("Loading local Piper Tsukuyomi TTS...", flush=True)
-    tts = JapaneseTTS(args.tts_model, args.tts_config)
+    if shutil.which("edge-tts") is None:
+        raise RuntimeError("edge-tts is required; install it with 'pip install edge-tts'")
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg is required to convert Edge TTS audio for G1")
+    print(
+        f"LLM: miko reading (fixed omikuji color: {FIXED_OMIKUJI_COLOR})"
+    )
+    print(f"TTS: Microsoft Edge {EDGE_TTS_VOICE}")
 
     ChannelFactoryInitialize(0, args.net)
     client = AudioClient()
@@ -293,18 +236,23 @@ def main() -> None:
             print(f"User: {user_text}")
             try:
                 raw_reply = chat(user_text)
-            except (requests.RequestException, KeyError, ValueError) as error:
-                print(f"LLM request failed; continuing: {error}", file=sys.stderr)
+            except Exception as error:
+                print(f"Miko LLM failed; continuing: {error}", file=sys.stderr)
                 args.interrupted.clear()
                 _, listener_result = start_listener(
                     client, args, audio_backend, args.threshold
                 )
                 continue
 
-            reply = sanitize_reply_for_tts(raw_reply)
+            reply = raw_reply.strip()
+            if not reply:
+                print("Miko LLM returned an empty response; continuing.", file=sys.stderr)
+                args.interrupted.clear()
+                _, listener_result = start_listener(
+                    client, args, audio_backend, args.threshold
+                )
+                continue
             print(f"Robot: {reply}")
-            if reply != raw_reply:
-                print(f"Raw LLM output was sanitized: {raw_reply!r}")
 
             args.interrupted.clear()
             next_result = None
@@ -320,11 +268,9 @@ def main() -> None:
             with tempfile.TemporaryDirectory(prefix="g1-reply-") as directory:
                 wav_path = Path(directory) / "reply.wav"
                 try:
-                    make_g1_wav(tts, reply, wav_path)
+                    make_g1_wav(reply, wav_path)
                 except Exception as error:
-                    # A malformed phoneme sequence should skip only this reply,
-                    # never terminate the long-running robot interaction.
-                    print(f"TTS failed; continuing: {error}", file=sys.stderr)
+                    print(f"Edge TTS failed; continuing: {error}", file=sys.stderr)
                     if next_result is None:
                         _, next_result = start_listener(
                             client, args, audio_backend, args.threshold

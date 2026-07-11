@@ -113,14 +113,18 @@ directories before starting CUDA. No manual `LD_LIBRARY_PATH` export is needed.
 
 ## Unitree G1 voice chat
 
-The original G1 sample used Microsoft Edge TTS voice
-`ja-JP-NanamiNeural`. The integrated version uses the local Kotoba Whisper ASR
-and Piper Tsukuyomi TTS while retaining the existing Ollama `qwen:0.5b` LLM:
+The G1 interaction uses local Kotoba Whisper ASR, the shared `/llm` miko reading
+logic, and Microsoft Edge TTS voice `ja-JP-NanamiNeural`. Until color recognition
+is connected, the omikuji color is fixed to `blue`:
 
 ```bash
 python -m speech.unitree_sample_files.g1_voice_chat ROBOT_INTERFACE \
   --asr-device cuda --compute-type float16
 ```
+
+Set `ANTHROPIC_API_KEY` and optionally `CLAUDE_MODEL` in `.env`. The `/llm`
+module uses its fallback readings if the Claude API call fails. Edge TTS requires
+network access and `ffmpeg`.
 
 Replace `ROBOT_INTERFACE` with the wired interface used to reach G1. The default
 audio input is the system microphone. Add `--input-device DEVICE` or
@@ -137,8 +141,5 @@ becomes the next turn. Energy detection alone cannot distinguish the user from
 speaker echo, so barge-in should only be enabled with a directional microphone
 or acoustic echo cancellation. Raise the threshold if speaker echo triggers it.
 
-The Qwen response is sanitized before Japanese TTS. In particular, generated
-romanization such as `(Hai kei desu ka?)` is removed because it would select
-Piper's English phonemizer and require optional NLTK English tagger data. LLM
-request and phonemizer errors are isolated to one turn, so a malformed response
-is logged and the robot returns to listening instead of exiting.
+LLM/TTS errors are isolated to one turn so the robot returns to listening instead
+of exiting.

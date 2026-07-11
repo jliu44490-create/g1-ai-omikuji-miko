@@ -11,3 +11,7 @@ faster-whisper
 piper-plus
 sounddevice
 soundfile
+edge-tts
+
+# miko LLM provider
+anthropic

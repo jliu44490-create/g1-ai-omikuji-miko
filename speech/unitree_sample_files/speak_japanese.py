@@ -11,7 +11,10 @@ import tempfile
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
 
-from wav import play_pcm_stream, read_wav
+try:
+    from .wav import play_pcm_stream, read_wav
+except ImportError:  # Allow direct `python speak_japanese.py` execution.
+    from wav import play_pcm_stream, read_wav
 
 
 VOICE = "ja-JP-NanamiNeural"
