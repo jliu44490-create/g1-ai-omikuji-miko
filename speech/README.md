@@ -154,3 +154,20 @@ Arm SDK/waist control is released before normal listening resumes.
 This pose is only for a 29-DOF G1 and uses a hard waist hold. Use physical
 protection and keep the E-stop ready. If the lower body fights the hold or
 shakes, stop immediately and reduce `--waist-kp`/`--waist-kd`.
+
+The complete arm choreography is:
+
+```text
+Unitree face wave (official arm action 25) -> release arm (99)
+-> listening pose from g1_move_to_symmetric_pose_硬腰.py while capturing speech
+-> measured standing pose and Arm SDK release
+-> judgment pose while Claude/Edge TTS/G1 playback run
+-> measured standing pose and Arm SDK release
+-> Unitree face wave -> release arm
+-> next listening pose
+```
+
+The official face wave is allowed `4.0` seconds by default before explicit arm
+release. Tune this with `--face-wave-seconds` and the post-release settling time
+with `--action-settle-seconds`. Official arm actions and custom `rt/arm_sdk`
+poses never run concurrently.

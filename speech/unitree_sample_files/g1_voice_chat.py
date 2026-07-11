@@ -21,10 +21,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from llm import generate_reading
 from g1_control.g1_move_to_symmetric_审判硬腰_real import (
+    TARGET as JUDGMENT_TARGET,
     WAIST_KD_HARD,
     WAIST_KP_HARD,
     RealG1ArmController,
 )
+from g1_control.g1_move_to_symmetric_pose_硬腰 import TARGET as LISTENING_TARGET
 from speech.asr import DEFAULT_MODEL_PATH, JapaneseASR
 from speech.realtime_voice import (
     choose_audio_backend,
@@ -39,6 +41,10 @@ from speech.unitree_sample_files.speak_japanese import (
 from speech.unitree_sample_files.wav import read_wav
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
+from unitree_sdk2py.g1.arm.g1_arm_action_client import (
+    G1ArmActionClient,
+    action_map,
+)
 
 STREAM_NAME = "tts"
 FIXED_OMIKUJI_COLOR = "blue"
@@ -47,21 +53,32 @@ FIXED_OMIKUJI_COLOR = "blue"
 class PoseSession:
     """Run one pose/hold/return lifecycle without blocking LLM or TTS."""
 
-    def __init__(self, controller: RealG1ArmController) -> None:
+    def __init__(
+        self,
+        controller: RealG1ArmController,
+        target: np.ndarray,
+        pose_name: str,
+    ) -> None:
         self.controller = controller
+        self.target = np.asarray(target, dtype=float)
+        self.pose_name = pose_name
         self.release_event = threading.Event()
         self.result: queue.Queue = queue.Queue(maxsize=1)
         self._result_collected = False
         self._error: BaseException | None = None
         self.thread = threading.Thread(
             target=self._run,
-            name="g1-judgment-pose",
+            name=f"g1-{pose_name}-pose",
             daemon=True,
         )
 
     def _run(self) -> None:
         try:
-            self.controller.run_until_released(self.release_event)
+            self.controller.run_until_released(
+                self.release_event,
+                target=self.target,
+                pose_name=self.pose_name,
+            )
             self.result.put(None)
         except BaseException as error:
             self.result.put(error)
@@ -69,9 +86,12 @@ class PoseSession:
     def start(self) -> None:
         self.thread.start()
 
-    def release_and_wait(self) -> None:
-        """Request standing and wait until Arm SDK control is released."""
+    def release(self) -> None:
+        """Begin the controlled return without blocking the caller."""
         self.release_event.set()
+
+    def wait(self) -> None:
+        """Wait until standing is restored and Arm SDK control is released."""
         self.thread.join()
         if not self._result_collected:
             self._error = self.result.get()
@@ -80,6 +100,30 @@ class PoseSession:
             raise RuntimeError(
                 f"G1 pose lifecycle failed: {self._error}"
             ) from self._error
+
+    def release_and_wait(self) -> None:
+        self.release()
+        self.wait()
+
+
+def execute_face_wave(
+    client: G1ArmActionClient,
+    action_seconds: float,
+    settle_seconds: float,
+) -> None:
+    """Run Unitree's official face-wave action, then release to normal arms."""
+    print("Action: face wave...")
+    code = client.ExecuteAction(action_map["face wave"])
+    if code != 0:
+        raise RuntimeError(f"G1 face-wave action failed with SDK code {code}")
+    try:
+        time.sleep(action_seconds)
+    finally:
+        code = client.ExecuteAction(action_map["release arm"])
+        if code != 0:
+            raise RuntimeError(f"G1 arm release failed with SDK code {code}")
+    time.sleep(settle_seconds)
+    print("Action: face wave complete; normal arms restored.")
 
 
 def chat(text: str) -> str:
@@ -190,6 +234,21 @@ def wait_for_audio(result: queue.Queue) -> np.ndarray:
             continue
 
 
+def start_listening_cycle(
+    pose_controller: RealG1ArmController,
+    audio_client: AudioClient,
+    args: argparse.Namespace,
+    audio_backend: str,
+) -> tuple[PoseSession, queue.Queue]:
+    """Enter the listening pose and capture the user's next utterance."""
+    session = PoseSession(pose_controller, LISTENING_TARGET, "listening")
+    session.start()
+    _, result = start_listener(
+        audio_client, args, audio_backend, args.threshold
+    )
+    return session, result
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Real-time local ASR/TTS chat through a Unitree G1"
@@ -232,13 +291,25 @@ def parse_args() -> argparse.Namespace:
         "--waist-kp",
         type=float,
         default=WAIST_KP_HARD,
-        help="Judgment-pose waist stiffness; lower it if the robot shakes",
+        help="Hard-waist pose stiffness; lower it if the robot shakes",
     )
     parser.add_argument(
         "--waist-kd",
         type=float,
         default=WAIST_KD_HARD,
-        help="Judgment-pose waist damping",
+        help="Hard-waist pose damping",
+    )
+    parser.add_argument(
+        "--face-wave-seconds",
+        type=float,
+        default=4.0,
+        help="Time allowed for Unitree's official face-wave action",
+    )
+    parser.add_argument(
+        "--action-settle-seconds",
+        type=float,
+        default=1.0,
+        help="Settling time after releasing the official arm action",
     )
     return parser.parse_args()
 
@@ -246,7 +317,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     enable_venv_cuda_libraries(args.asr_device)
-    print("WARNING: judgment pose control is only for a 29-DOF G1.")
+    print("WARNING: custom pose control is only for a 29-DOF G1.")
     print(
         "WARNING: clear the arm/waist area, use physical protection, and keep "
         "the E-stop ready. Hard waist holding can fight balance."
@@ -279,30 +350,49 @@ def main() -> None:
     client.Init()
     check_voice_service(client, args.net)
     pose_controller = RealG1ArmController(args.waist_kp, args.waist_kd)
+    arm_action_client = G1ArmActionClient()
+    arm_action_client.SetTimeout(10.0)
+    arm_action_client.Init()
 
     print("G1 Voice Chat Ready (Ctrl+C to exit)")
-    _, listener_result = start_listener(
-        client, args, audio_backend, args.threshold
+    execute_face_wave(
+        arm_action_client,
+        args.face_wave_seconds,
+        args.action_settle_seconds,
+    )
+    active_pose, listener_result = start_listening_cycle(
+        pose_controller, client, args, audio_backend
     )
 
-    active_pose: PoseSession | None = None
     try:
         while True:
             audio = wait_for_audio(listener_result)
+            # The listening pose is needed only while the user is speaking.
+            # Return concurrently with ASR, then wait for standing before the
+            # judgment pose takes ownership of rt/arm_sdk.
+            if active_pose is not None:
+                active_pose.release()
             print("Recognizing...", flush=True)
             user_text = asr.transcribe(audio)
+            if active_pose is not None:
+                active_pose.wait()
+                active_pose = None
             if not user_text:
                 print("No speech recognized.")
                 args.interrupted.clear()
-                _, listener_result = start_listener(
-                    client, args, audio_backend, args.threshold
+                active_pose, listener_result = start_listening_cycle(
+                    pose_controller, client, args, audio_backend
                 )
                 continue
 
             print(f"User: {user_text}")
             # Start moving at the same moment this recognized text is sent to
             # Claude. The background session holds TARGET through TTS playback.
-            active_pose = PoseSession(pose_controller)
+            active_pose = PoseSession(
+                pose_controller,
+                JUDGMENT_TARGET,
+                "judgment",
+            )
             active_pose.start()
             try:
                 raw_reply = chat(user_text)
@@ -311,8 +401,8 @@ def main() -> None:
                 active_pose.release_and_wait()
                 active_pose = None
                 args.interrupted.clear()
-                _, listener_result = start_listener(
-                    client, args, audio_backend, args.threshold
+                active_pose, listener_result = start_listening_cycle(
+                    pose_controller, client, args, audio_backend
                 )
                 continue
 
@@ -322,8 +412,8 @@ def main() -> None:
                 active_pose.release_and_wait()
                 active_pose = None
                 args.interrupted.clear()
-                _, listener_result = start_listener(
-                    client, args, audio_backend, args.threshold
+                active_pose, listener_result = start_listening_cycle(
+                    pose_controller, client, args, audio_backend
                 )
                 continue
             print(f"Robot: {reply}")
@@ -348,8 +438,8 @@ def main() -> None:
                     active_pose.release_and_wait()
                     active_pose = None
                     if next_result is None:
-                        _, next_result = start_listener(
-                            client, args, audio_backend, args.threshold
+                        active_pose, next_result = start_listening_cycle(
+                            pose_controller, client, args, audio_backend
                         )
                     listener_result = next_result
                     continue
@@ -372,8 +462,13 @@ def main() -> None:
             active_pose = None
 
             if next_result is None:
-                _, next_result = start_listener(
-                    client, args, audio_backend, args.threshold
+                execute_face_wave(
+                    arm_action_client,
+                    args.face_wave_seconds,
+                    args.action_settle_seconds,
+                )
+                active_pose, next_result = start_listening_cycle(
+                    pose_controller, client, args, audio_backend
                 )
             listener_result = next_result
 

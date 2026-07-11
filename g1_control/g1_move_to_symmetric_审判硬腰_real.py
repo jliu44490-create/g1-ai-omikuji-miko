@@ -190,8 +190,13 @@ class RealG1ArmController:
             self.publish(positions, 1.0)
             time.sleep(CONTROL_DT)
 
-    def run_until_released(self, release_event: threading.Event) -> None:
-        """Enter TARGET, hold it, and return only when release_event is set.
+    def run_until_released(
+        self,
+        release_event: threading.Event,
+        target: np.ndarray = TARGET,
+        pose_name: str = "judgment",
+    ) -> None:
+        """Enter target, hold it, and return only when release_event is set.
 
         This integration lifecycle is used by voice interaction. The measured
         arm pose at the start of each turn is treated as the standing pose.
@@ -200,12 +205,17 @@ class RealG1ArmController:
         """
         self.stop_requested = False
         self.wait_for_state()
+        target = np.asarray(target, dtype=float)
+        if target.shape != (len(ARM_JOINTS),):
+            raise ValueError(
+                f"{pose_name} target must contain {len(ARM_JOINTS)} joints"
+            )
         initial_arm = self.current_arm_position()
         initial_waist = self.current_waist_position()
         self.set_waist_lock_position(initial_waist)
 
         try:
-            print("Pose: taking arm control and locking the waist...")
+            print(f"Pose ({pose_name}): taking arm control and locking the waist...")
             self.interpolate(
                 initial_arm,
                 initial_arm,
@@ -215,27 +225,27 @@ class RealG1ArmController:
                 cancel_event=release_event,
             )
             if not release_event.is_set() and not self.stop_requested:
-                print("Pose: moving to the judgment pose...")
+                print(f"Pose ({pose_name}): moving to target...")
                 self.interpolate(
                     initial_arm,
-                    TARGET,
+                    target,
                     MOVE_SECONDS,
                     cancel_event=release_event,
                 )
 
             while not release_event.is_set() and not self.stop_requested:
-                self.publish(TARGET, 1.0)
+                self.publish(target, 1.0)
                 release_event.wait(CONTROL_DT)
         finally:
             # Once takeover has begun, always attempt a controlled return.
-            print("Pose: returning to the standing arm pose...")
+            print(f"Pose ({pose_name}): returning to the standing arm pose...")
             self.stop_requested = False
             return_start = self.current_arm_position()
             self.interpolate(return_start, initial_arm, RETURN_SECONDS)
-            print("Pose: releasing Arm SDK and waist lock...")
+            print(f"Pose ({pose_name}): releasing Arm SDK and waist lock...")
             self.interpolate(initial_arm, initial_arm, RELEASE_SECONDS, 1.0, 0.0)
             self.publish(initial_arm, 0.0)
-            print("Pose: standing pose restored.")
+            print(f"Pose ({pose_name}): standing pose restored.")
 
     def run(self) -> None:
         self.wait_for_state()
