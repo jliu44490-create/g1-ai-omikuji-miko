@@ -367,27 +367,26 @@ def main() -> None:
     try:
         while True:
             audio = wait_for_audio(listener_result)
-            # The listening pose is needed only while the user is speaking.
-            # Return concurrently with ASR, then wait for standing before the
-            # judgment pose takes ownership of rt/arm_sdk.
-            if active_pose is not None:
-                active_pose.release()
+            # Keep holding the listening pose until Whisper has produced a
+            # usable sentence. Only then restore standing and transfer arm
+            # ownership to the judgment/reading pose.
             print("Recognizing...", flush=True)
             user_text = asr.transcribe(audio)
-            if active_pose is not None:
-                active_pose.wait()
-                active_pose = None
             if not user_text:
                 print("No speech recognized.")
                 args.interrupted.clear()
-                active_pose, listener_result = start_listening_cycle(
-                    pose_controller, client, args, audio_backend
+                _, listener_result = start_listener(
+                    client, args, audio_backend, args.threshold
                 )
                 continue
 
             print(f"User: {user_text}")
-            # Start moving at the same moment this recognized text is sent to
-            # Claude. The background session holds TARGET through TTS playback.
+            if active_pose is not None:
+                active_pose.release_and_wait()
+                active_pose = None
+
+            # Standing/Arm SDK release is complete; transition immediately to
+            # the reading pose and send the recognized sentence to Claude.
             active_pose = PoseSession(
                 pose_controller,
                 JUDGMENT_TARGET,

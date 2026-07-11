@@ -159,8 +159,8 @@ The complete arm choreography is:
 
 ```text
 Unitree face wave (official arm action 25) -> release arm (99)
--> listening pose from g1_move_to_symmetric_pose_硬腰.py while capturing speech
--> measured standing pose and Arm SDK release
+-> listening pose from g1_move_to_symmetric_pose_硬腰.py through capture and ASR
+-> after a sentence is recognized: measured standing pose and Arm SDK release
 -> judgment pose while Claude/Edge TTS/G1 playback run
 -> measured standing pose and Arm SDK release
 -> Unitree face wave -> release arm
