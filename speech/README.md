@@ -113,9 +113,9 @@ directories before starting CUDA. No manual `LD_LIBRARY_PATH` export is needed.
 
 ## Unitree G1 voice chat
 
-The G1 interaction uses local Kotoba Whisper ASR, the shared `/llm` miko reading
-logic, and Microsoft Edge TTS voice `ja-JP-NanamiNeural`. Until color recognition
-is connected, the omikuji color is fixed to `blue`:
+The G1 interaction uses local Kotoba Whisper ASR, camera-based omikuji color
+recognition, the shared `/llm` miko reading logic, and Microsoft Edge TTS voice
+`ja-JP-NanamiNeural`:
 
 ```bash
 python -m speech.unitree_sample_files.g1_voice_chat ROBOT_INTERFACE \
@@ -144,12 +144,20 @@ or acoustic echo cancellation. Raise the threshold if speaker echo triggers it.
 LLM/TTS errors are isolated to one turn so the robot returns to listening instead
 of exiting.
 
-After a non-empty ASR result, the real-G1 judgment pose from
-`g1_control/g1_move_to_symmetric_审判硬腰_real.py` starts in parallel with the
-Claude request. The arm target and startup waist angle remain actively held
-through Edge TTS generation and G1 playback. After playback and its tail buffer
-finish, the arms interpolate back to their measured starting/standing pose and
-Arm SDK/waist control is released before normal listening resumes.
+After a non-empty ASR result, G1 returns to normal and asks the user in Japanese
+to show the omikuji to the camera. A single `red`, `gold`, or `blue` result must
+remain stable for five frames. The detected color and recognized sentence are
+then sent to `/llm`, while the real-G1 judgment pose starts and remains held
+through Edge TTS generation and G1 playback. After playback and its tail buffer,
+the arms return to their measured starting/standing pose and release control.
+
+Camera defaults are index `0`, a 15-second timeout, and five confirmation
+frames. Tune with `--camera-index`, `--color-timeout-seconds`, and
+`--color-confirmation-frames`; add `--show-color-preview` for the annotated
+OpenCV window. If the camera cannot open, recognition raises an error, or no
+stable color is found before timeout, the same recognized sentence continues
+through the reading flow with `gold` as the default color; the user is not asked
+to repeat their speech.
 
 This pose is only for a 29-DOF G1 and uses a hard waist hold. Use physical
 protection and keep the E-stop ready. If the lower body fights the hold or
@@ -161,6 +169,7 @@ The complete arm choreography is:
 Unitree face wave (official arm action 25) -> release arm (99)
 -> listening pose from g1_move_to_symmetric_pose_硬腰.py through capture and ASR
 -> after a sentence is recognized: measured standing pose and Arm SDK release
+-> Japanese camera prompt -> stable red/gold/blue recognition
 -> judgment pose while Claude/Edge TTS/G1 playback run
 -> measured standing pose and Arm SDK release
 -> Unitree face wave -> release arm
