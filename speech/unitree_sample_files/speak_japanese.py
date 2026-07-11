@@ -1,86 +1,143 @@
 #!/usr/bin/env python3
+"""Play a WAV file (or generated Japanese speech) through a Unitree G1."""
+
+import argparse
 import os
-import sys
+from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
 
-# 使用官方 wav.py
-from wav import read_wav, play_pcm_stream
+from wav import play_pcm_stream, read_wav
 
 
-VOICE = "ja-JP-NanamiNeural"      # 女声
-# VOICE = "ja-JP-KeitaNeural"     # 男声
+VOICE = "ja-JP-NanamiNeural"
+DEFAULT_WAV = Path(__file__).resolve().parents[1] / "audio" / "output.wav"
 
 
-def generate_wav(text, wav_path):
+def generate_wav(text: str, wav_path: str) -> None:
+    """Generate a 16-kHz mono WAV using the optional edge-tts CLI."""
+    if shutil.which("edge-tts") is None:
+        raise RuntimeError(
+            "edge-tts is not installed. Install it with 'pip install edge-tts', "
+            "or play an existing recording with --wav."
+        )
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg is required to convert edge-tts output to WAV")
+
     mp3_path = wav_path.replace(".wav", ".mp3")
-
-    # 1. edge-tts
-    subprocess.check_call([
-        "edge-tts",
-        "--voice", VOICE,
-        "--text", text,
-        "--write-media", mp3_path
-    ])
-
-    # 2. ffmpeg 转 WAV
-    subprocess.check_call([
-        "ffmpeg",
-        "-y",
-        "-i", mp3_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-acodec", "pcm_s16le",
-        wav_path
-    ])
-
-    os.remove(mp3_path)
+    try:
+        subprocess.run(
+            ["edge-tts", "--voice", VOICE, "--text", text,
+             "--write-media", mp3_path],
+            check=True,
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", mp3_path,
+             "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le", wav_path],
+            check=True,
+        )
+    finally:
+        if os.path.exists(mp3_path):
+            os.remove(mp3_path)
 
 
-def speak(audio_client, text):
-    tmp_wav = tempfile.NamedTemporaryFile(
-        suffix=".wav",
-        delete=False
-    ).name
+def normalize_wav(source: Path, destination: str) -> None:
+    """Convert input into the 16-kHz, mono, signed-16-bit format used by G1."""
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError(
+            f"{source} is not 16-kHz mono PCM; install ffmpeg to convert it"
+        )
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(source),
+         "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le", destination],
+        check=True,
+    )
 
-    generate_wav(text, tmp_wav)
 
-    pcm, sample_rate, channels, ok = read_wav(tmp_wav)
+def speak_wav(audio_client: AudioClient, wav_path: Path) -> None:
+    if not wav_path.is_file():
+        raise FileNotFoundError(f"WAV file not found: {wav_path}")
 
+    temporary_path = None
+    pcm, sample_rate, channels, ok = read_wav(str(wav_path))
     if not ok:
-        print("读取 WAV 失败")
-        return
+        raise RuntimeError(f"Could not read PCM WAV: {wav_path}")
 
-    print(f"SampleRate={sample_rate}")
-    print(f"Channels={channels}")
+    try:
+        if sample_rate != 16000 or channels != 1:
+            temporary_path = tempfile.NamedTemporaryFile(
+                suffix=".wav", delete=False
+            ).name
+            print(
+                f"Converting {sample_rate} Hz/{channels} channel(s) "
+                "to 16000 Hz/mono..."
+            )
+            normalize_wav(wav_path, temporary_path)
+            pcm, sample_rate, channels, ok = read_wav(temporary_path)
+            if not ok:
+                raise RuntimeError("Could not read the converted WAV")
 
-    play_pcm_stream(audio_client, pcm, "tts")
+        print(f"Playing {wav_path} ({sample_rate} Hz, {channels} channel)")
+        play_pcm_stream(audio_client, pcm, "tts")
+        audio_client.PlayStop("tts")
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
-    audio_client.PlayStop("tts")
 
-    os.remove(tmp_wav)
+def speak_text(audio_client: AudioClient, text: str) -> None:
+    temporary_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+    try:
+        generate_wav(text, temporary_path)
+        speak_wav(audio_client, Path(temporary_path))
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
 
-def main():
+def check_voice_service(audio_client: AudioClient, interface: str) -> None:
+    """Fail early when DDS cannot discover the G1 voice service."""
+    code, volume = audio_client.GetVolume()
+    if code == 3102:
+        raise RuntimeError(
+            "Unitree voice service was not discovered on interface "
+            f"'{interface}' (SDK error 3102). Check that this is the wired "
+            "robot-facing interface, that it has the robot-subnet IPv4 address, "
+            "and that multicast/firewall settings allow CycloneDDS traffic."
+        )
+    if code != 0:
+        raise RuntimeError(f"Unitree voice-service check failed with SDK code {code}")
+    print(f"Connected to Unitree voice service (volume: {volume})")
 
-    if len(sys.argv) < 3:
-        print("Usage:")
-        print(f"python3 {sys.argv[0]} enp7s0f1 'こんにちは'")
-        return
 
-    net = sys.argv[1]
-    text = sys.argv[2]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Play Japanese speech or an existing WAV through a Unitree G1."
+    )
+    parser.add_argument("network_interface", help="Interface connected to G1, e.g. enp7s0f1")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--wav", type=Path, help=f"WAV to play (default: {DEFAULT_WAV})")
+    source.add_argument("--text", help="Japanese text to synthesize with edge-tts")
+    return parser.parse_args()
 
-    ChannelFactoryInitialize(0, net)
+
+def main() -> None:
+    args = parse_args()
+    ChannelFactoryInitialize(0, args.network_interface)
 
     client = AudioClient()
     client.SetTimeout(10.0)
     client.Init()
+    check_voice_service(client, args.network_interface)
 
-    speak(client, text)
+    if args.text is not None:
+        speak_text(client, args.text)
+    else:
+        speak_wav(client, args.wav or DEFAULT_WAV)
 
 
 if __name__ == "__main__":
