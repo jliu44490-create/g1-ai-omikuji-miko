@@ -182,6 +182,13 @@ release. Tune this with `--face-wave-seconds` and the post-release settling time
 with `--action-settle-seconds`. Official arm actions and custom `rt/arm_sdk`
 poses never run concurrently.
 
+The opening face wave starts together with
+「こんにちは、今日あなたの心の声を、少しだけ聞かせてください。」 The closing
+face wave starts together with
+「話してくれて、ありがとうございます。今日一日、よき日でありますように。」
+Greeting audio has an independent playback lifecycle: it continues to the end
+of the sentence even when the official face-wave action finishes first.
+
 Both custom arm poses use a 4.0-second smoothstep entry and a 4.0-second
 return. Arm/waist takeover and release each use 1.5 seconds. These timings are
 shared by the integrated listening and reading pose controller.
