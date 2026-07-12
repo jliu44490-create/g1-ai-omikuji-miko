@@ -151,13 +151,14 @@ then sent to `/llm`, while the real-G1 judgment pose starts and remains held
 through Edge TTS generation and G1 playback. After playback and its tail buffer,
 the arms return to their measured starting/standing pose and release control.
 
-Camera defaults are index `0`, a 15-second timeout, and five confirmation
-frames. Tune with `--camera-index`, `--color-timeout-seconds`, and
-`--color-confirmation-frames`; add `--show-color-preview` for the annotated
-OpenCV window. If the camera cannot open, recognition raises an error, or no
-stable color is found before timeout, the same recognized sentence continues
-through the reading flow with `gold` as the default color; the user is not asked
-to repeat their speech.
+Camera frames come from the G1 RealSense ZMQ stream, defaulting to
+`192.168.123.164:55555`, with a 15-second timeout and five confirmation frames.
+Tune with `--camera-ip`, `--camera-port`, `--color-timeout-seconds`, and
+`--color-confirmation-frames`. The annotated center-ROI preview is enabled by
+default; press `Esc` to close it and exit voice chat cleanly, or launch with
+`--no-color-preview` for headless operation. No polling sleep is used. If the
+stream fails or no stable color is found, the same sentence continues with
+`gold`; the user is not asked to repeat it.
 
 This pose is only for a 29-DOF G1 and uses a hard waist hold. Use physical
 protection and keep the E-stop ready. If the lower body fights the hold or

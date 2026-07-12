@@ -1,5 +1,6 @@
 numpy
 opencv-python
+pyzmq
 pyyaml
 python-dotenv
 requests

@@ -28,7 +28,13 @@ from g1_control.g1_move_to_symmetric_审判硬腰_real import (
 )
 from g1_control.g1_move_to_symmetric_pose_硬腰 import TARGET as LISTENING_TARGET
 from speech.asr import DEFAULT_MODEL_PATH, JapaneseASR
-from speech.g1_color_speak import COLOR_TEXT, recognize_omikuji_color
+from speech.g1_color_speak import (
+    CAMERA_IP,
+    CAMERA_PORT,
+    COLOR_TEXT,
+    ColorRecognitionCancelled,
+    recognize_omikuji_color,
+)
 from speech.realtime_voice import (
     choose_audio_backend,
     enable_venv_cuda_libraries,
@@ -183,7 +189,8 @@ def request_omikuji_color(
         playback_thread.start()
         try:
             color = recognize_omikuji_color(
-                camera_index=args.camera_index,
+                camera_ip=args.camera_ip,
+                camera_port=args.camera_port,
                 timeout_seconds=args.color_timeout_seconds,
                 confirmation_frames=args.color_confirmation_frames,
                 show_preview=args.show_color_preview,
@@ -360,10 +367,15 @@ def parse_args() -> argparse.Namespace:
         help="Settling time after releasing the official arm action",
     )
     parser.add_argument(
-        "--camera-index",
+        "--camera-ip",
+        default=CAMERA_IP,
+        help="G1 RealSense ZMQ stream IP",
+    )
+    parser.add_argument(
+        "--camera-port",
         type=int,
-        default=0,
-        help="OpenCV camera index used for omikuji color recognition",
+        default=CAMERA_PORT,
+        help="G1 RealSense ZMQ stream port",
     )
     parser.add_argument(
         "--color-timeout-seconds",
@@ -378,10 +390,12 @@ def parse_args() -> argparse.Namespace:
         help="Consecutive frames required to accept one color",
     )
     parser.add_argument(
-        "--show-color-preview",
-        action="store_true",
-        help="Show the annotated OpenCV preview window",
+        "--no-color-preview",
+        action="store_false",
+        dest="show_color_preview",
+        help="Disable the annotated color preview window (enabled by default)",
     )
+    parser.set_defaults(show_color_preview=True)
     return parser.parse_args()
 
 
@@ -462,6 +476,9 @@ def main() -> None:
                 print(f"Robot prompt: {COLOR_REQUEST_TEXT}")
                 print("Color recognition: show the omikuji to the camera...")
                 omikuji_color = request_omikuji_color(client, args)
+            except ColorRecognitionCancelled as error:
+                print(f"Color recognition cancelled: {error}")
+                raise KeyboardInterrupt from error
             except Exception as error:
                 print(f"Color recognition failed: {error}", file=sys.stderr)
                 print(
