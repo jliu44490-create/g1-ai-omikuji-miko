@@ -177,17 +177,19 @@ Unitree face wave (official arm action 25) -> release arm (99)
 -> next listening pose
 ```
 
-The official face wave is allowed `4.0` seconds by default before explicit arm
-release. Tune this with `--face-wave-seconds` and the post-release settling time
-with `--action-settle-seconds`. Official arm actions and custom `rt/arm_sdk`
-poses never run concurrently.
+The official face wave runs autonomously until the greeting finishes, followed
+by explicit arm release and the delay configured by `--action-settle-seconds`.
+Official arm actions and custom `rt/arm_sdk` poses never run concurrently.
 
-The opening face wave starts together with
+The opening face wave is started immediately before
 「こんにちは、今日あなたの心の声を、少しだけ聞かせてください。」 The closing
-face wave starts together with
+face wave is started immediately before
 「話してくれて、ありがとうございます。今日一日、よき日でありますように。」
-Greeting audio has an independent playback lifecycle: it continues to the end
-of the sentence even when the official face-wave action finishes first.
+For DDS reliability, arm-action and binary audio RPC calls run sequentially on
+the main thread with a 0.5-second settling delay; tune it with
+`--face-wave-audio-delay-seconds`. The built-in animation runs autonomously on
+G1, and arm release is sent only after the complete sentence and playback tail,
+so an earlier animation finish never truncates speech.
 
 Both custom arm poses use a 4.0-second smoothstep entry and a 4.0-second
 return. Arm/waist takeover and release each use 1.5 seconds. These timings are
