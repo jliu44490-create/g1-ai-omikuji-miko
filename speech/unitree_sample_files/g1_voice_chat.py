@@ -55,7 +55,9 @@ from unitree_sdk2py.g1.arm.g1_arm_action_client import (
 
 STREAM_NAME = "tts"
 OPENING_GREETING_TEXT = "こんにちは、今日あなたの心の声を、少しだけ聞かせてください。"
-CLOSING_GREETING_TEXT = "話してくれて、ありがとうございます。今日一日、よき日でありますように。"
+CLOSING_GREETING_TEXT = (
+    "話してくれて、ありがとうございます。今日一日、よき日でありますように。"
+)
 DRAW_OMIKUJI_TEXT = "どうぞ、おみくじをお引きください。"
 COLOR_REQUEST_TEXT = "おみくじをカメラの前に見せてください。"
 DEFAULT_OMIKUJI_COLOR = "gold"
@@ -426,7 +428,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--color-timeout-seconds",
         type=float,
-        default=15.0,
+        default=60.0,
         help="Maximum time to wait for an omikuji color",
     )
     parser.add_argument(
