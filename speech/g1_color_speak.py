@@ -10,6 +10,7 @@ import os
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
+
 if __package__:
     from .unitree_sample_files.wav import read_wav, play_pcm_stream
 else:  # Allow direct `python speech/g1_color_speak.py` execution.
@@ -31,9 +32,9 @@ ROI_RATIO = 0.6
 
 # 颜色 → 日语
 COLOR_TEXT = {
-    "red":   "これは赤です",
-    "gold":  "これは金色です",
-    "blue":  "これは青です",
+    "red": "これは赤です",
+    "gold": "これは金色です",
+    "blue": "これは青です",
 }
 
 # HSV（现场级保守参数）
@@ -42,12 +43,8 @@ HSV_PARAMS = {
         (np.array([0, 160, 140]), np.array([6, 255, 255])),
         (np.array([174, 160, 140]), np.array([180, 255, 255])),
     ),
-    "gold": (
-        (np.array([0, 0, 0]), np.array([180, 255, 50])),
-    ),
-    "blue": (
-        (np.array([95, 140, 120]), np.array([115, 255, 240])),
-    ),
+    "gold": ((np.array([0, 0, 0]), np.array([180, 255, 50])),),
+    "blue": ((np.array([80, 40, 30]), np.array([140, 255, 255])),),
 }
 # ==========================================
 
@@ -59,6 +56,7 @@ class ColorRecognitionCancelled(Exception):
 # ================== TTS ==================
 async def _generate_mp3(text, mp3_path):
     from edge_tts import Communicate
+
     communicate = Communicate(text=text, voice=VOICE)
     await communicate.save(mp3_path)
 
@@ -67,14 +65,22 @@ def generate_wav(text, wav_path):
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3_tmp:
         mp3_path = mp3_tmp.name
     asyncio.run(_generate_mp3(text, mp3_path))
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-i", mp3_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-acodec", "pcm_s16le",
-        wav_path
-    ], check=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            mp3_path,
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            "-acodec",
+            "pcm_s16le",
+            wav_path,
+        ],
+        check=True,
+    )
     os.remove(mp3_path)
 
 
@@ -96,9 +102,9 @@ def is_in_center_roi(x, y, w, h, img_shape):
     cy = y + h // 2
 
     h_img, w_img = img_shape[:2]
-    left   = int(w_img * (1 - ROI_RATIO) / 2)
-    right  = int(w_img * (1 + ROI_RATIO) / 2)
-    top    = int(h_img * (1 - ROI_RATIO) / 2)
+    left = int(w_img * (1 - ROI_RATIO) / 2)
+    right = int(w_img * (1 + ROI_RATIO) / 2)
+    top = int(h_img * (1 - ROI_RATIO) / 2)
     bottom = int(h_img * (1 + ROI_RATIO) / 2)
 
     return left < cx < right and top < cy < bottom
@@ -147,17 +153,24 @@ def detect_colors(img):
 
             result[name] = True
             cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
-            cv2.putText(img, name, (x, max(y - 5, 15)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(
+                img,
+                name,
+                (x, max(y - 5, 15)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2,
+            )
             continue
 
         result[name] = False
 
     # 画中心区域（绿色框）
     h_img, w_img = img.shape[:2]
-    left   = int(w_img * (1 - ROI_RATIO) / 2)
-    right  = int(w_img * (1 + ROI_RATIO) / 2)
-    top    = int(h_img * (1 - ROI_RATIO) / 2)
+    left = int(w_img * (1 - ROI_RATIO) / 2)
+    right = int(w_img * (1 + ROI_RATIO) / 2)
+    top = int(h_img * (1 - ROI_RATIO) / 2)
     bottom = int(h_img * (1 + ROI_RATIO) / 2)
     cv2.rectangle(img, (left, top), (right, bottom), (0, 255, 0), 2)
 
