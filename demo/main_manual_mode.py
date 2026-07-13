@@ -1,3 +1,15 @@
+import time
+
+from llm.miko import generate_reading
+
+
+COLOR_ACTION = {
+    "gold": "pray",
+    "red": "bow",
+    "blue": "nod",
+}
+
+
 class G1Controller:
     def __init__(self, use_real_robot=False):
         self.use_real_robot = use_real_robot
@@ -15,40 +27,6 @@ class G1Controller:
         print(f"[G1] Play action: {action_name}")
 
 
-def generate_omikuji_response(user_text, color):
-    color_map = {
-        "gold": {
-            "action": "pray",
-            "message": "你抽到了金色签。它代表祝福、希望和被支持。"
-        },
-        "red": {
-            "action": "bow",
-            "message": "你抽到了赤色签。它代表行动、勇气和向前迈出一步。"
-        },
-        "blue": {
-            "action": "nod",
-            "message": "你抽到了青色签。它代表冷静、整理和慢慢看清自己的心。"
-        },
-    }
-
-    info = color_map.get(color, {
-        "action": "listen",
-        "message": "签色还没有被清楚识别。不过没关系，请先慢慢整理自己的心情。"
-    })
-
-    text = (
-        info["message"] + "\n"
-        + "你刚才说的是：" + user_text + "\n"
-        + "这不是对未来的断言，而是一个帮助你整理心情的小仪式。\n"
-        + "现在最重要的不是立刻得到答案，而是先看清楚自己真正担心的是什么。"
-    )
-
-    return {
-        "text": text,
-        "action": info["action"]
-    }
-
-
 def main():
     robot = G1Controller(use_real_robot=False)
 
@@ -57,27 +35,30 @@ def main():
         robot.reset_pose()
 
         print("=== G1 AI Omikuji Miko Manual Demo ===")
-
         robot.play_action("bow")
 
-        user_text = input("请输入用户烦恼：")
-        color = input("请选择签色 gold / red / blue：").strip().lower()
+        user_text = input("あなたの言葉を聞かせてください: ")
+        color = input("色を選んでください (gold / red / blue): ").strip().lower()
 
-        result = generate_omikuji_response(user_text, color)
+        if color not in COLOR_ACTION:
+            print(f"Unknown color: {color}, defaulting to gold")
+            color = "gold"
 
-        print("\n生成结果：")
-        print("Action:", result["action"])
-        print("Text:", result["text"])
+        print("\n巫女が言葉を紡いでいます...")
+        t0 = time.time()
+        reading = generate_reading(user_text, color)
+        elapsed = time.time() - t0
 
-        robot.play_action(result["action"])
+        action = COLOR_ACTION[color]
+        robot.play_action(action)
 
-        print("\n[Miko TTS]")
-        print(result["text"])
+        print(f"\n--- 巫女の言葉 ({elapsed:.1f}s) ---\n")
+        print(reading)
 
         robot.reset_pose()
 
     except KeyboardInterrupt:
-        print("\n手动中断，回到安全姿态。")
+        print("\n手動中断。")
         robot.reset_pose()
 
     finally:
