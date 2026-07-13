@@ -1,8 +1,24 @@
 # G1 AI Omikuji Miko
+<p align="center">
+  <a href="assets/demo.mp4">
+    <img
+      src="assets/demo-thumbnail.png"
+      width="800"
+      alt="▶ Watch demo video"
+    />
+  </a>
+</p>
 
 <p align="center">
-  <a href="docs/index.html">
-    <img src="https://img.shields.io/badge/Open%20Project%20Webpage-1A1917?style=for-the-badge" alt="Open Project Webpage" />
+  <a href="assets/demo.mp4">▶ Watch the demo video</a>
+</p>
+
+<p align="center">
+  <a href="https://savicktso.github.io/g1-ai-omikuji-miko/">
+    <img
+      src="https://img.shields.io/badge/Open%20Project%20Webpage-1A1917?style=for-the-badge"
+      alt="Open Project Webpage"
+    />
   </a>
 </p>
 
@@ -14,8 +30,8 @@ The goal is not to predict the future. It is to create a warm, shrine-like robot
 
 Current fallback demo:
 
-- manual input for the user’s concern
-- manual selection of the fortune color: `gold`, `red`, or `blue`
+- listen to the user’s concern
+- recognize user's selection of the fortune color: `gold`, `red`, or `blue`
 - generated response text and motion label output
 
 Run it with:
@@ -26,9 +42,22 @@ python3 -m speech.g1_voice_chat ETHERNET_DRIVE --asr-device cuda
 ```
 
 ## 日本語
+<p align="center">
+  <a href="assets/demo.mp4">
+    <img
+      src="assets/demo-thumbnail.png"
+      width="800"
+      alt="▶ Watch demo video"
+    />
+  </a>
+</p>
 
 <p align="center">
-  <a href="docs/index.html">
+  <a href="assets/demo.mp4">▶ Watch the demo video</a>
+</p>
+
+<p align="center">
+  <a href="https://savicktso.github.io/g1-ai-omikuji-miko/">
     <img src="https://img.shields.io/badge/Open%20Webpage-8A6A2F?style=for-the-badge" alt="Open project webpage" />
   </a>
 </p>
@@ -39,9 +68,9 @@ G1 AI おみくじ巫女は、Unitree G1、LLM の応答生成、音声対話、
 
 現在のフォールバック版:
 
-- 悩みを手入力
-- 签色を手動で選択: `gold`, `red`, `blue`
-- 応答テキストと動作ラベルを生成
+- ユーザーの悩みを聞く
+- ユーザーが選択した签色（`gold`、`red`、`blue`）を認識する
+- 応答テキストとモーションラベルを生成して出力する
 
 実行方法:
 
