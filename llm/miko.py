@@ -77,9 +77,7 @@ def _fallback_reading(text: str, color: str) -> str:
         key = list(data.keys())[0]
     return random.choice(data[key])
 
-# --- LLM ---
-
-MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "glm").lower()
+# --- Claude LLM ---
 
 COLOR_LABEL = {
     "gold": "金（祝福）",
@@ -91,43 +89,6 @@ COLOR_LABEL = {
 def _build_user_message(text: str, color: str) -> str:
     label = COLOR_LABEL.get(color.lower(), color)
     return f"【相手の言葉】{text}\n【色】{label}"
-
-
-def _glm_messages(user_msg: str) -> list[dict]:
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_msg},
-    ]
-
-
-def _call_glm(user_msg: str) -> str:
-    from zhipuai import ZhipuAI
-
-    client = ZhipuAI(api_key=os.environ["ZHIPUAI_API_KEY"])
-    resp = client.chat.completions.create(
-        model=os.getenv("GLM_MODEL", "glm-4.7"),
-        messages=_glm_messages(user_msg),
-        temperature=0.8,
-        max_tokens=512,
-    )
-    return resp.choices[0].message.content.strip()
-
-
-def _stream_glm(user_msg: str):
-    from zhipuai import ZhipuAI
-
-    client = ZhipuAI(api_key=os.environ["ZHIPUAI_API_KEY"])
-    resp = client.chat.completions.create(
-        model=os.getenv("GLM_MODEL", "glm-4.7"),
-        messages=_glm_messages(user_msg),
-        temperature=0.8,
-        max_tokens=512,
-        stream=True,
-    )
-    for chunk in resp:
-        delta = chunk.choices[0].delta
-        if delta.content:
-            yield delta.content
 
 
 def _call_claude(user_msg: str) -> str:
@@ -160,16 +121,6 @@ def _stream_claude(user_msg: str):
             yield text
 
 
-PROVIDERS = {
-    "glm": _call_glm,
-    "claude": _call_claude,
-}
-
-STREAM_PROVIDERS = {
-    "glm": _stream_glm,
-    "claude": _stream_claude,
-}
-
 # --- Public API ---
 
 def generate_reading(text: str, color: str) -> str:
@@ -192,12 +143,8 @@ def generate_reading(text: str, color: str) -> str:
         return preset
 
     user_msg = _build_user_message(text, color)
-    call_fn = PROVIDERS.get(MODEL_PROVIDER)
-    if call_fn is None:
-        raise ValueError(f"MODEL_PROVIDER must be 'glm' or 'claude', got {MODEL_PROVIDER!r}")
-
     try:
-        return call_fn(user_msg)
+        return _call_claude(user_msg)
     except Exception as e:
         print(f"[miko] LLM 呼び出し失敗 ({type(e).__name__}: {e})、フォールバックへ切替")
         return _fallback_reading(text, color)
@@ -213,12 +160,8 @@ def generate_reading_stream(text: str, color: str):
         raise ValueError(f"color must be one of {list(COLOR_LABEL.keys())}, got {color!r}")
 
     user_msg = _build_user_message(text, color)
-    stream_fn = STREAM_PROVIDERS.get(MODEL_PROVIDER)
-    if stream_fn is None:
-        raise ValueError(f"MODEL_PROVIDER must be 'glm' or 'claude', got {MODEL_PROVIDER!r}")
-
     try:
-        yield from stream_fn(user_msg)
+        yield from _stream_claude(user_msg)
     except Exception as e:
         print(f"[miko] LLM stream 失敗 ({type(e).__name__}: {e})、フォールバックへ切替")
         yield _fallback_reading(text, color)
@@ -241,4 +184,4 @@ if __name__ == "__main__":
     result = generate_reading(txt, clr)
     elapsed = time.time() - t0
     print(result)
-    print(f"\n[{elapsed:.1f}s | provider={MODEL_PROVIDER}]")
+    print(f"\n[{elapsed:.1f}s | provider=claude]")

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import queue
+import shutil
+import signal
+import subprocess
 import sys
 import threading
 from datetime import datetime
@@ -86,6 +90,55 @@ def clear_audio_queue() -> None:
             break
 
 
+def sounddevice_has_input(device: Optional[Union[int, str]]) -> bool:
+    """Return whether PortAudio can see the requested input device."""
+    try:
+        sd.check_input_settings(device=device, channels=1, samplerate=16000)
+        return True
+    except Exception:
+        return False
+
+
+def record_with_pulse(
+    output_path: Path,
+    sample_rate: int,
+    channels: int,
+    device: Optional[Union[int, str]],
+) -> None:
+    """Record through WSLg/PulseAudio when PortAudio has no Pulse backend."""
+    parec = shutil.which("parec")
+    if parec is None:
+        raise RuntimeError("parec is not installed (install pulseaudio-utils)")
+
+    pulse_device = str(device) if device is not None else "@DEFAULT_SOURCE@"
+    command = [
+        parec,
+        "--record",
+        f"--device={pulse_device}",
+        f"--rate={sample_rate}",
+        "--format=s16le",
+        f"--channels={channels}",
+        "--file-format=wav",
+        str(output_path),
+    ]
+
+    print(f"Recording from PulseAudio source {pulse_device}...")
+    print("Press Enter to stop.")
+    process = subprocess.Popen(command)
+    try:
+        input()
+    finally:
+        # SIGINT lets parec finalize the WAV header before exiting.
+        process.send_signal(signal.SIGINT)
+        try:
+            return_code = process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            return_code = process.wait(timeout=2)
+        if return_code not in (0, -signal.SIGINT):
+            raise RuntimeError(f"parec exited with status {return_code}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Record microphone audio and save it as a WAV file."
@@ -126,10 +179,21 @@ def main() -> None:
         help="Show available audio devices and exit.",
     )
 
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "sounddevice", "pulse"],
+        default="auto",
+        help="Audio backend. Auto uses PulseAudio when PortAudio has no input device.",
+    )
+
     args = parser.parse_args()
 
     if args.list_devices:
+        print("PortAudio devices:")
         print(sd.query_devices())
+        if shutil.which("pactl") and os.environ.get("PULSE_SERVER"):
+            print("\nPulseAudio sources:")
+            subprocess.run(["pactl", "list", "short", "sources"], check=False)
         return
 
     if args.output is None:
@@ -143,6 +207,29 @@ def main() -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     device = parse_device(args.device)
+
+    use_pulse = args.backend == "pulse" or (
+        args.backend == "auto"
+        and not sounddevice_has_input(device)
+        and bool(os.environ.get("PULSE_SERVER"))
+        and shutil.which("parec") is not None
+    )
+
+    if use_pulse:
+        input("Press Enter to start recording...")
+        try:
+            record_with_pulse(
+                output_path, args.sample_rate, args.channels, device
+            )
+        except (OSError, RuntimeError) as error:
+            print(f"PulseAudio recording failed: {error}", file=sys.stderr)
+            sys.exit(1)
+
+        if output_path.exists() and output_path.stat().st_size > 44:
+            print(f"\nRecording saved successfully:\n{output_path.resolve()}")
+            return
+        print("\nNo usable recording was saved.", file=sys.stderr)
+        sys.exit(1)
 
     try:
         # Check that the selected microphone supports these settings.
@@ -158,10 +245,10 @@ def main() -> None:
         print("  python record_audio.py --list-devices")
         sys.exit(1)
 
+    input("Press Enter to start recording...")
+
     clear_audio_queue()
     stop_event.clear()
-
-    input("Press Enter to start recording...")
 
     writer_thread = threading.Thread(
         target=write_audio,

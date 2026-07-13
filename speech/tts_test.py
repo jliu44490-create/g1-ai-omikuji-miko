@@ -3,7 +3,8 @@ from pathlib import Path
 
 from piper import PiperVoice
 
-MODEL_DIR = Path("models/tsukuyomi")
+SPEECH_DIR = Path(__file__).resolve().parent
+MODEL_DIR = SPEECH_DIR / "models" / "tsukuyomi"
 MODEL_PATH = MODEL_DIR / "tsukuyomi-chan-6lang-fp16.onnx"
 CONFIG_PATH = MODEL_DIR / "config.json"
 
@@ -34,5 +35,5 @@ def generate_japanese_audio(
 if __name__ == "__main__":
     generate_japanese_audio(
         "こんにちは、これはテストです。",
-        "audio/output.wav",
+        str(SPEECH_DIR / "audio" / "output.wav"),
     )

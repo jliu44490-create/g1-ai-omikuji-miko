@@ -1,12 +1,15 @@
 from faster_whisper import WhisperModel
 import time
+from pathlib import Path
 
-model = WhisperModel("kotoba-tech/kotoba-whisper-v2.0-faster")
+SPEECH_DIR = Path(__file__).resolve().parent
+MODEL_PATH = SPEECH_DIR / "models" / "kotoba-whisper-v2.0-faster"
+model = WhisperModel(str(MODEL_PATH), device="cpu", compute_type="int8")
 
 start_time = time.time()
 
 segments, info = model.transcribe(
-    "audio/output.wav",
+    str(SPEECH_DIR / "audio" / "output.wav"),
     language="ja",
     chunk_length=15,
     condition_on_previous_text=False,

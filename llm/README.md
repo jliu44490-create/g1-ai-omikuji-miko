@@ -45,9 +45,8 @@ cp .env.example .env
 
 `.env` の設定：
 ```
-MODEL_PROVIDER=glm
-ZHIPUAI_API_KEY=your-key-here
-GLM_MODEL=glm-4.7
+ANTHROPIC_API_KEY=your-key-here
+CLAUDE_MODEL=claude-sonnet-5
 ```
 
 ### 三色の意味
@@ -60,8 +59,7 @@ GLM_MODEL=glm-4.7
 
 ### 現在の到達点
 
-- ✅ GLM-4.7 による高品質な日本語解読文の生成
-- ✅ Claude API への切り替え対応（`.env` を変更するだけ）
+- ✅ Claude API による高品質な日本語解読文の生成
 - ✅ オフラインフォールバック（API障害時に自動切替）
 - ✅ デモ用プリセット（推奨入力5つ × 3色 = 15パターンの定製フォールバック）
 - ✅ System prompt v3（温かく芯の強い巫女の人格設定）
@@ -128,9 +126,8 @@ cp .env.example .env
 
 `.env` 配置：
 ```
-MODEL_PROVIDER=glm
-ZHIPUAI_API_KEY=你的key
-GLM_MODEL=glm-4.7
+ANTHROPIC_API_KEY=你的key
+CLAUDE_MODEL=claude-sonnet-5
 ```
 
 ### 三色含义
@@ -143,8 +140,7 @@ GLM_MODEL=glm-4.7
 
 ### 目前达到的效果
 
-- ✅ 使用 GLM-4.7 生成高质量日语解读文
-- ✅ 支持切换到 Claude API（改 `.env` 即可）
+- ✅ 使用 Claude API 生成高质量日语解读文
 - ✅ 断网兜底（API 调用失败时自动切换到预生成文案）
 - ✅ Demo 预设兜底（5 个推荐输入 × 3 色 = 15 段量身定制的文案）
 - ✅ System prompt v3（温柔坚强、善于倾听的巫女人格）
@@ -211,9 +207,8 @@ cp .env.example .env
 
 `.env` config:
 ```
-MODEL_PROVIDER=glm
-ZHIPUAI_API_KEY=your-key-here
-GLM_MODEL=glm-4.7
+ANTHROPIC_API_KEY=your-key-here
+CLAUDE_MODEL=claude-sonnet-5
 ```
 
 ### Three colors
@@ -226,8 +221,7 @@ GLM_MODEL=glm-4.7
 
 ### Current status
 
-- ✅ High-quality Japanese readings via GLM-4.7
-- ✅ Claude API support (switch via `.env`)
+- ✅ High-quality Japanese readings via the Claude API
 - ✅ Offline fallback (auto-switches to pre-generated readings on API failure)
 - ✅ Demo presets (5 recommended inputs × 3 colors = 15 tailored fallback readings)
 - ✅ System prompt v3 (warm, strong, empathetic shrine maiden persona)

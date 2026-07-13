@@ -15,6 +15,7 @@ Hard waist holding can fight the lower-body balance controller if the stiffness 
 import argparse
 import signal
 import sys
+import threading
 import time
 
 import numpy as np
@@ -32,11 +33,11 @@ from unitree_sdk2py.utils.crc import CRC
 
 
 CONTROL_DT = 0.02
-ENABLE_SECONDS = 2.0
-MOVE_SECONDS = 12.0
-HOLD_SECONDS = 2.0
-RETURN_SECONDS = 12.0
-RELEASE_SECONDS = 2.0
+ENABLE_SECONDS = 1.5
+MOVE_SECONDS = 4.0
+HOLD_SECONDS = 1.0
+RETURN_SECONDS = 4.0
+RELEASE_SECONDS = 1.5
 
 # Arm stiffness.
 ARM_KP = 40.0
@@ -166,6 +167,7 @@ class RealG1ArmController:
         duration: float,
         start_weight: float = 1.0,
         end_weight: float = 1.0,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         begin = time.monotonic()
         while True:
@@ -174,7 +176,11 @@ class RealG1ArmController:
             position = (1.0 - phase) * start + phase * end
             weight = (1.0 - phase) * start_weight + phase * end_weight
             self.publish(position, weight)
-            if elapsed >= duration or self.stop_requested:
+            if (
+                elapsed >= duration
+                or self.stop_requested
+                or (cancel_event is not None and cancel_event.is_set())
+            ):
                 return
             time.sleep(max(0.0, CONTROL_DT - ((time.monotonic() - begin) % CONTROL_DT)))
 
@@ -183,6 +189,63 @@ class RealG1ArmController:
         while time.monotonic() < deadline and not self.stop_requested:
             self.publish(positions, 1.0)
             time.sleep(CONTROL_DT)
+
+    def run_until_released(
+        self,
+        release_event: threading.Event,
+        target: np.ndarray = TARGET,
+        pose_name: str = "judgment",
+    ) -> None:
+        """Enter target, hold it, and return only when release_event is set.
+
+        This integration lifecycle is used by voice interaction. The measured
+        arm pose at the start of each turn is treated as the standing pose.
+        A release during the entry interpolation cancels entry immediately and
+        still performs the smooth return/release sequence.
+        """
+        self.stop_requested = False
+        self.wait_for_state()
+        target = np.asarray(target, dtype=float)
+        if target.shape != (len(ARM_JOINTS),):
+            raise ValueError(
+                f"{pose_name} target must contain {len(ARM_JOINTS)} joints"
+            )
+        initial_arm = self.current_arm_position()
+        initial_waist = self.current_waist_position()
+        self.set_waist_lock_position(initial_waist)
+
+        try:
+            print(f"Pose ({pose_name}): taking arm control and locking the waist...")
+            self.interpolate(
+                initial_arm,
+                initial_arm,
+                ENABLE_SECONDS,
+                0.0,
+                1.0,
+                cancel_event=release_event,
+            )
+            if not release_event.is_set() and not self.stop_requested:
+                print(f"Pose ({pose_name}): moving to target...")
+                self.interpolate(
+                    initial_arm,
+                    target,
+                    MOVE_SECONDS,
+                    cancel_event=release_event,
+                )
+
+            while not release_event.is_set() and not self.stop_requested:
+                self.publish(target, 1.0)
+                release_event.wait(CONTROL_DT)
+        finally:
+            # Once takeover has begun, always attempt a controlled return.
+            print(f"Pose ({pose_name}): returning to the standing arm pose...")
+            self.stop_requested = False
+            return_start = self.current_arm_position()
+            self.interpolate(return_start, initial_arm, RETURN_SECONDS)
+            print(f"Pose ({pose_name}): releasing Arm SDK and waist lock...")
+            self.interpolate(initial_arm, initial_arm, RELEASE_SECONDS, 1.0, 0.0)
+            self.publish(initial_arm, 0.0)
+            print(f"Pose ({pose_name}): standing pose restored.")
 
     def run(self) -> None:
         self.wait_for_state()
